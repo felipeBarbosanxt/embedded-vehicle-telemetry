@@ -15,5 +15,4 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   esp-idf-lib/mpu6050: '*'
-  esp-idf-lib/hmc5883l: '*'
   esp-idf-lib/bmp180: '*'

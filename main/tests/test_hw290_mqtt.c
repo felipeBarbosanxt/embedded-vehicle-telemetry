@@ -10,19 +10,20 @@
 #include "nvs_flash.h"
 #include "mqtt_client.h"
 #include <bmp180.h>
+#include <mpu6050.h>
 
 #define I2C_MASTER_SDA   18
 #define I2C_MASTER_SCL   19
 
-#define WIFI_SSID        "SNXT"
-#define WIFI_PASS        "25262006"
+#define WIFI_SSID        "..."
+#define WIFI_PASS        "505283fb"
 
 #define MQTT_BROKER_URI  "mqtt://broker.hivemq.com"
-#define MQTT_TOPIC       "tcc_felipe/bmp180"
+#define MQTT_TOPIC       "tcc_felipe/hw290"
 
 #define WIFI_CONNECTED_BIT BIT0
 
-static const char *TAG = "test_bmp180_mqtt";
+static const char *TAG = "test_hw290_mqtt";
 
 static EventGroupHandle_t s_wifi_event_group;
 
@@ -94,27 +95,67 @@ void app_main(void)
 
     ESP_ERROR_CHECK(i2cdev_init());
 
-    bmp180_dev_t dev;
-    memset(&dev, 0, sizeof(bmp180_dev_t));
-    ESP_ERROR_CHECK(bmp180_init_desc(&dev, 0, I2C_MASTER_SDA, I2C_MASTER_SCL));
-    dev.i2c_dev.cfg.master.clk_speed = 100000;
-    dev.i2c_dev.cfg.sda_pullup_en = 1;
-    dev.i2c_dev.cfg.scl_pullup_en = 1;
-    ESP_ERROR_CHECK(bmp180_init(&dev));
+    mpu6050_dev_t mpu;
+    memset(&mpu, 0, sizeof(mpu6050_dev_t));
+    ESP_ERROR_CHECK(mpu6050_init_desc(&mpu, MPU6050_I2C_ADDRESS_LOW, 0, I2C_MASTER_SDA, I2C_MASTER_SCL));
+    mpu.i2c_dev.cfg.master.clk_speed = 100000;
+    mpu.i2c_dev.cfg.sda_pullup_en = 1;
+    mpu.i2c_dev.cfg.scl_pullup_en = 1;
+    ESP_ERROR_CHECK(mpu6050_init(&mpu));
 
-    char payload[64];
+    ESP_LOGI(TAG, "Calibrando giroscopio, mantenha o sensor parado...");
+    mpu6050_rotation_t gyro_offset = { 0 };
+    for (int i = 0; i < 200; i++) {
+        mpu6050_rotation_t r;
+        ESP_ERROR_CHECK(mpu6050_get_rotation(&mpu, &r));
+        gyro_offset.x += r.x;
+        gyro_offset.y += r.y;
+        gyro_offset.z += r.z;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    gyro_offset.x /= 200;
+    gyro_offset.y /= 200;
+    gyro_offset.z /= 200;
+    ESP_LOGI(TAG, "Offset do giroscopio: x=%.4f y=%.4f z=%.4f",
+             gyro_offset.x, gyro_offset.y, gyro_offset.z);
+
+    bmp180_dev_t bmp;
+    memset(&bmp, 0, sizeof(bmp180_dev_t));
+    ESP_ERROR_CHECK(bmp180_init_desc(&bmp, 0, I2C_MASTER_SDA, I2C_MASTER_SCL));
+    bmp.i2c_dev.cfg.master.clk_speed = 100000;
+    bmp.i2c_dev.cfg.sda_pullup_en = 1;
+    bmp.i2c_dev.cfg.scl_pullup_en = 1;
+    ESP_ERROR_CHECK(bmp180_init(&bmp));
+
+    char payload[256];
 
     while (1) {
-        float temp;
+        float temp, mpu_temp;
         uint32_t pressure;
+        mpu6050_acceleration_t accel = { 0 };
+        mpu6050_rotation_t rotation = { 0 };
 
-        if (bmp180_measure(&dev, &temp, &pressure, BMP180_MODE_STANDARD) == ESP_OK) {
+        if (bmp180_measure(&bmp, &temp, &pressure, BMP180_MODE_STANDARD) != ESP_OK) {
+            ESP_LOGE(TAG, "Falha na leitura do BMP180");
+        } else if (mpu6050_get_motion(&mpu, &accel, &rotation) != ESP_OK ||
+                   mpu6050_get_temperature(&mpu, &mpu_temp) != ESP_OK) {
+            ESP_LOGE(TAG, "Falha na leitura do MPU6050");
+        } else {
+            rotation.x -= gyro_offset.x;
+            rotation.y -= gyro_offset.y;
+            rotation.z -= gyro_offset.z;
+
             int len = snprintf(payload, sizeof(payload),
-                               "{\"temp\":%.2f,\"press\":%" PRIu32 "}", temp, pressure);
+                               "{\"temp\":%.2f,\"press\":%" PRIu32 ","
+                               "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
+                               "\"gx\":%.4f,\"gy\":%.4f,\"gz\":%.4f,"
+                               "\"mpu_temp\":%.2f}",
+                               temp, pressure,
+                               accel.x, accel.y, accel.z,
+                               rotation.x, rotation.y, rotation.z,
+                               mpu_temp);
             esp_mqtt_client_publish(client, MQTT_TOPIC, payload, len, 0, 0);
             ESP_LOGI(TAG, "%s", payload);
-        } else {
-            ESP_LOGE(TAG, "Falha na leitura do BMP180");
         }
 
         vTaskDelay(pdMS_TO_TICKS(500));

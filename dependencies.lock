@@ -43,32 +43,6 @@ dependencies:
     - esp32s2
     - esp32s3
     version: 1.4.0
-  esp-idf-lib/hmc5883l:
-    component_hash: 52933419d1cdc2cd793d02a08705c1f58d04ce915b1ad77ad0b0771bce6668c6
-    dependencies:
-    - name: esp-idf-lib/esp_idf_lib_helpers
-      registry_url: https://components.espressif.com
-      require: private
-      version: '*'
-    - name: esp-idf-lib/i2cdev
-      registry_url: https://components.espressif.com
-      require: private
-      version: '*'
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    targets:
-    - esp32
-    - esp32c2
-    - esp32c3
-    - esp32c5
-    - esp32c6
-    - esp32c61
-    - esp32h2
-    - esp32p4
-    - esp32s2
-    - esp32s3
-    version: 1.0.7
   esp-idf-lib/i2cdev:
     component_hash: ad8981cc64533dcaced5107d72e42bcebe79345e194e82795792af531b300ce3
     dependencies:
@@ -123,9 +97,8 @@ dependencies:
     version: 5.4.2
 direct_dependencies:
 - esp-idf-lib/bmp180
-- esp-idf-lib/hmc5883l
 - esp-idf-lib/mpu6050
 - idf
-manifest_hash: 778582b5a8e0dd7dfce35ad762de5bad6895ac94b0c533118ae93687ed143b2b
+manifest_hash: ebd1b0eb02c5f1b1624b51f72fb591365dd5e713bf9297d4b0f90b5dc79c379c
 target: esp32
 version: 2.0.0
