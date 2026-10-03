@@ -98,10 +98,12 @@ void app_main(void)
     mpu6050_dev_t mpu;
     memset(&mpu, 0, sizeof(mpu6050_dev_t));
     ESP_ERROR_CHECK(mpu6050_init_desc(&mpu, MPU6050_I2C_ADDRESS_LOW, 0, I2C_MASTER_SDA, I2C_MASTER_SCL));
-    mpu.i2c_dev.cfg.master.clk_speed = 100000;
+    mpu.i2c_dev.cfg.master.clk_speed = 400000;
     mpu.i2c_dev.cfg.sda_pullup_en = 1;
     mpu.i2c_dev.cfg.scl_pullup_en = 1;
     ESP_ERROR_CHECK(mpu6050_init(&mpu));
+    ESP_ERROR_CHECK(mpu6050_set_dlpf_mode(&mpu, MPU6050_DLPF_3));
+    ESP_ERROR_CHECK(mpu6050_set_rate(&mpu, 4));
 
     ESP_LOGI(TAG, "Calibrando giroscopio, mantenha o sensor parado...");
     mpu6050_rotation_t gyro_offset = { 0 };
@@ -122,7 +124,7 @@ void app_main(void)
     bmp180_dev_t bmp;
     memset(&bmp, 0, sizeof(bmp180_dev_t));
     ESP_ERROR_CHECK(bmp180_init_desc(&bmp, 0, I2C_MASTER_SDA, I2C_MASTER_SCL));
-    bmp.i2c_dev.cfg.master.clk_speed = 100000;
+    bmp.i2c_dev.cfg.master.clk_speed = 400000;
     bmp.i2c_dev.cfg.sda_pullup_en = 1;
     bmp.i2c_dev.cfg.scl_pullup_en = 1;
     ESP_ERROR_CHECK(bmp180_init(&bmp));
