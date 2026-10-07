@@ -24,6 +24,7 @@
 #define MQTT_BROKER_URI  "mqtt://broker.hivemq.com"
 #define MQTT_TOPIC       "tcc_felipe/hw290"
 #define MQTT_TOPIC_BRUTO MQTT_TOPIC "/bruto"
+#define MQTT_TOPIC_EVENTOS MQTT_TOPIC "/eventos"
 #define MQTT_OUTBOX_MAX  (32 * 1024)
 
 #define PERIODO_MS          5
@@ -31,6 +32,13 @@
 #define ESTABILIZACAO_MS    2000
 #define CALIBRACAO_AMOSTRAS 1000
 #define GRAVIDADE_TAU_S     5.0f
+#define SUAVIZACAO_AMOSTRAS 10
+#define HISTERESE           0.7f
+#define GRAVIDADE_MS2       9.81f
+#define PARADO_ACC_G        0.03f
+#define PARADO_GYRO_DPS     3.0f
+#define PARADO_MS           200
+#define VELOCIDADE_MIN      0.05f
 
 #define MODO_COLETA      1
 #define LOTE_AMOSTRAS    20
@@ -51,6 +59,22 @@ typedef struct {
     float gyro[3];
 } amostra_t;
 
+typedef enum { OCIOSO, CANDIDATO, ATIVO, RESFRIAMENTO } estado_t;
+
+typedef struct {
+    float limiar;           // g; positivo = acima do limiar, negativo = abaixo
+    int min_ms;
+    int resfriamento_ms;
+} detector_cfg_t;
+
+typedef struct {
+    estado_t estado;
+    int64_t t_inicio_ms;
+    int64_t t_fim_ms;
+    float pico;
+    float v_inicio;
+} detector_t;
+
 static const char *TAG = "test_hw290_mqtt";
 
 static EventGroupHandle_t s_wifi_event_group;
@@ -59,6 +83,12 @@ static mpu6050_dev_t s_mpu;
 static float s_gyro_offset[3];
 static float s_gravidade[3];
 static uint32_t s_descartadas;
+
+static detector_cfg_t s_cfg[] = {
+    {  0.3f, 100, 500 },
+    { -0.4f, 100, 500 },
+};
+static detector_t s_det[sizeof(s_cfg) / sizeof(s_cfg[0])];
 
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
@@ -171,6 +201,48 @@ static void sensor_task(void *pvParameters)
     }
 }
 
+// Retorna true quando um evento termina; pico e duracao ficam em det
+static bool detector_atualizar(const detector_cfg_t *cfg, detector_t *det, float valor, float velocidade,
+                               int64_t t_ms)
+{
+    // Com limiar negativo o sinal e invertido, assim a logica e sempre "acima do limiar"
+    float v = cfg->limiar < 0 ? -valor : valor;
+    float limiar = fabsf(cfg->limiar);
+
+    switch (det->estado) {
+    case OCIOSO:
+        if (v > limiar) {
+            det->estado = CANDIDATO;
+            det->t_inicio_ms = t_ms;
+            det->pico = v;
+            det->v_inicio = velocidade;
+        }
+        break;
+    case CANDIDATO:
+        det->pico = fmaxf(det->pico, v);
+        if (v < limiar * HISTERESE) {
+            det->estado = OCIOSO;
+        } else if (t_ms - det->t_inicio_ms >= cfg->min_ms) {
+            det->estado = ATIVO;
+        }
+        break;
+    case ATIVO:
+        det->pico = fmaxf(det->pico, v);
+        if (v < limiar * HISTERESE) {
+            det->estado = RESFRIAMENTO;
+            det->t_fim_ms = t_ms;
+            return true;
+        }
+        break;
+    case RESFRIAMENTO:
+        if (t_ms - det->t_fim_ms >= cfg->resfriamento_ms) {
+            det->estado = OCIOSO;
+        }
+        break;
+    }
+    return false;
+}
+
 void app_main(void)
 {
     nvs_init();
@@ -239,6 +311,10 @@ void app_main(void)
     float soma_acc[3] = { 0 };
     float soma_gyro[3] = { 0 };
     int n = 0;
+    float janela_ax[SUAVIZACAO_AMOSTRAS] = { 0 };
+    int i_janela = 0;
+    float velocidade = 0;
+    int parado_n = 0;
     int64_t proximo_resumo = esp_timer_get_time() + RESUMO_MS * 1000;
 
     while (1) {
@@ -250,6 +326,45 @@ void app_main(void)
                 soma_gyro[i] += amostra.gyro[i];
             }
             n++;
+
+            janela_ax[i_janela] = amostra.acc[0];
+            i_janela = (i_janela + 1) % SUAVIZACAO_AMOSTRAS;
+            float ax_suave = 0;
+            for (int i = 0; i < SUAVIZACAO_AMOSTRAS; i++) {
+                ax_suave += janela_ax[i];
+            }
+            ax_suave /= SUAVIZACAO_AMOSTRAS;
+
+            velocidade += ax_suave * GRAVIDADE_MS2 * PERIODO_MS / 1000.0f;
+            bool parado = true;
+            for (int i = 0; i < 3; i++) {
+                if (fabsf(amostra.acc[i]) > PARADO_ACC_G || fabsf(amostra.gyro[i]) > PARADO_GYRO_DPS) {
+                    parado = false;
+                }
+            }
+            parado_n = parado ? parado_n + 1 : 0;
+            if (parado_n * PERIODO_MS >= PARADO_MS) {
+                velocidade = 0;
+            }
+
+            for (size_t i = 0; i < sizeof(s_cfg) / sizeof(s_cfg[0]); i++) {
+                if (detector_atualizar(&s_cfg[i], &s_det[i], ax_suave, velocidade, amostra.t_us / 1000)) {
+                    bool positivo = s_cfg[i].limiar > 0;
+                    float v0 = s_det[i].v_inicio;
+                    // Aceleracao contraria ao movimento e frenagem; a favor (ou partindo do repouso) e arrancada
+                    bool frenagem = positivo ? v0 < -VELOCIDADE_MIN : v0 > VELOCIDADE_MIN;
+                    bool frente = frenagem ? v0 > 0 : positivo;
+                    float pico = positivo ? s_det[i].pico : -s_det[i].pico;
+                    int len = snprintf(payload, sizeof(payload),
+                                       "{\"tipo\":\"%s\",\"sentido\":\"%s\",\"t_ms\":%" PRId64 ","
+                                       "\"duracao_ms\":%" PRId64 ",\"pico\":%.3f,\"v_inicio\":%.2f}",
+                                       frenagem ? "frenagem" : "arrancada", frente ? "frente" : "re",
+                                       s_det[i].t_inicio_ms, s_det[i].t_fim_ms - s_det[i].t_inicio_ms,
+                                       pico, v0);
+                    esp_mqtt_client_enqueue(client, MQTT_TOPIC_EVENTOS, payload, len, 0, 0, true);
+                    ESP_LOGI(TAG, "Evento: %s", payload);
+                }
+            }
 
 #if MODO_COLETA
             lote_len += snprintf(lote + lote_len, sizeof(lote) - lote_len,
