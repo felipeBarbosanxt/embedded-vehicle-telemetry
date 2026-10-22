@@ -97,6 +97,35 @@ h2 {
   padding: 14px;
 }
 
+.sim { margin-bottom: 14px; }
+
+.sim-barra, .sim-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sim-barra { justify-content: space-between; }
+
+#sim-corpo { margin-top: 12px; }
+#sim-corpo[hidden] { display: none; }
+
+button {
+  font: inherit;
+  color: var(--texto);
+  background: #222836;
+  border: 1px solid var(--linha);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+button:hover { border-color: #5c6b80; }
+button.ligado { border-color: var(--ok); color: var(--ok); }
+
+.grafico-pista { margin-top: 10px; }
+
 .topo {
   display: grid;
   grid-template-columns: 260px minmax(240px, 320px) 1fr;
@@ -242,6 +271,8 @@ h2 {
 
 .lista-eventos li.arrancada { border-left-color: var(--ax); }
 .lista-eventos li.frenagem { border-left-color: var(--freio); }
+.lista-eventos li.curva { border-left-color: var(--ay); }
+.lista-eventos li.impacto { border-left-color: var(--az); }
 
 .lista-eventos time {
   color: var(--mudo);

@@ -23,6 +23,27 @@
       </div>
     </header>
 
+    <section class="painel sim" id="painel-sim">
+      <div class="sim-barra">
+        <button type="button" id="sim-ligar" aria-pressed="false">Simular</button>
+        <p class="nota" id="sim-ajuda">Gera o resumo e os eventos neste navegador, com a mesma máquina de estados da placa.</p>
+      </div>
+      <div id="sim-corpo" hidden>
+        <div class="sim-acoes">
+          <button type="button" data-manobra="arrancada">Arrancada</button>
+          <button type="button" data-manobra="frenagem">Frenagem</button>
+          <button type="button" data-manobra="curva">Curva</button>
+          <button type="button" data-manobra="impacto">Impacto</button>
+          <button type="button" data-manobra="curto">Pulso curto</button>
+        </div>
+        <p class="nota" id="sim-maquina"></p>
+        <div class="grafico grafico-pista">
+          <canvas id="canvas-pista"></canvas>
+        </div>
+        <p class="nota">A pista usa a proa integrada. As setas do desenho seguem os eixos do corpo. Curva e impacto são ensaio: o firmware ainda não os publica. W A S D ou as setas dirigem.</p>
+      </div>
+    </section>
+
     <section class="topo">
       <article class="painel carro-painel">
         <h2>Carrinho</h2>

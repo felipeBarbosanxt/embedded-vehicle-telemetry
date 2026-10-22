@@ -56,12 +56,17 @@
   function rotuloTipo(tipo) {
     if (tipo === "arrancada") return "Arrancada";
     if (tipo === "frenagem") return "Frenagem";
+    if (tipo === "curva") return "Curva";
+    if (tipo === "impacto") return "Impacto";
     return tipo;
   }
 
   function rotuloSentido(sentido) {
     if (sentido === "frente") return "Frente";
     if (sentido === "re") return "Ré";
+    if (sentido === "esquerda") return "Esquerda";
+    if (sentido === "direita") return "Direita";
+    if (sentido === "cima") return "Cima";
     return sentido;
   }
 
@@ -75,6 +80,12 @@
   function pintarLigacao() {
     const ponto = el("ponto");
     ponto.className = "ponto";
+    if (estado.fase === "simulacao") {
+      el("status-conexao").textContent = "Simulação";
+      el("status-dados").textContent = "Modelo local. Nada é publicado.";
+      ponto.classList.add("ok");
+      return;
+    }
     if (estado.fase === "conectando") {
       el("status-conexao").textContent = "Conectando";
       el("status-dados").textContent = "Abrindo o canal com o broker";
@@ -172,7 +183,7 @@
   }
 
   function desenharCarro() {
-    const amostra = estado.ultimo;
+    const amostra = estado.pose || estado.ultimo;
     const grupo = el("carro-grupo");
     const setaAx = el("seta-ax");
     const setaAy = el("seta-ay");
@@ -260,7 +271,8 @@
     }
     for (const evento of estado.eventos) {
       const item = document.createElement("li");
-      if (evento.tipo === "arrancada" || evento.tipo === "frenagem") {
+      if (evento.tipo === "arrancada" || evento.tipo === "frenagem" ||
+          evento.tipo === "curva" || evento.tipo === "impacto") {
         item.classList.add(evento.tipo);
       }
       const hora = document.createElement("time");
@@ -482,8 +494,7 @@
     }
   }
 
-  function aoMensagem(topico, carga) {
-    const dado = aoJson(carga.toString());
+  function receber(topico, dado) {
     if (!dado || typeof dado !== "object") return;
     if (topico === TOPICO_EVENTOS) {
       const evento = guardarEvento(dado);
@@ -497,7 +508,15 @@
     if (topico === TOPICO && guardarResumo(dado)) pintarTudo();
   }
 
+  function aoMensagem(topico, carga) {
+    receber(topico, aoJson(carga.toString()));
+  }
+
+  let clienteMqtt = null;
+  let simulando = false;
+
   function conectar() {
+    if (simulando) return;
     if (typeof mqtt === "undefined") {
       estado.erroMqtt = "O cliente MQTT não carregou";
       pintarLigacao();
@@ -510,7 +529,9 @@
       connectTimeout: 8000,
       keepalive: 30,
     });
+    clienteMqtt = cliente;
     cliente.on("connect", function () {
+      if (simulando) return;
       estado.fase = "conectado";
       estado.erroMqtt = "";
       cliente.subscribe(TOPICO);
@@ -519,12 +540,12 @@
     });
     cliente.on("message", aoMensagem);
     cliente.on("close", function () {
-      if (estado.fase === "conectado") {
-        estado.fase = "desconectado";
-        pintarLigacao();
-      }
+      if (simulando || estado.fase !== "conectado") return;
+      estado.fase = "desconectado";
+      pintarLigacao();
     });
     cliente.on("error", function (erro) {
+      if (simulando) return;
       estado.fase = "desconectado";
       const bruto = erro && erro.message ? erro.message : "";
       estado.erroMqtt = /timeout|connack|ECONN|ENOTFOUND/i.test(bruto)
@@ -533,6 +554,409 @@
       pintarLigacao();
     });
   }
+
+  // Mesma máquina de detector_atualizar, no passo de 20 ms. O resumo sai a cada 500 ms.
+  const PASSO_MS = 20;
+  const HISTERESE = 0.7;
+  const VELOCIDADE_MIN = 0.05;
+  const PARADO_ACC_G = 0.03;
+  const PARADO_GYRO_DPS = 3;
+  const PARADO_MS = 200;
+  const GRAVIDADE = 9.81;
+  const PISTA_W = 6;
+  const PISTA_H = 4;
+  const OCIOSO = "ocioso";
+  const CANDIDATO = "candidato";
+  const ATIVO = "ativo";
+  const RESFRIAMENTO = "resfriamento";
+
+  const sim = {
+    tMs: 0,
+    v: 0,
+    proa: 0,
+    x: 0,
+    y: 0,
+    paradoMs: 0,
+    acumulado: 0,
+    ultimoQuadro: 0,
+    proximoResumo: 0,
+    quadroId: 0,
+    manobra: null,
+    teclas: new Set(),
+    trilha: [],
+    soma: { ax: 0, ay: 0, az: 0, gx: 0, gy: 0, gz: 0, n: 0 },
+    textoMaquina: "",
+  };
+
+  function detectorNovo() {
+    return { estado: OCIOSO, tInicio: 0, tFim: 0, pico: 0, vInicio: 0 };
+  }
+
+  const detAxPos = detectorNovo();
+  const detAxNeg = detectorNovo();
+  const detAyPos = detectorNovo();
+  const detAyNeg = detectorNovo();
+  const detAz = detectorNovo();
+
+  function zerarDetector(det) {
+    det.estado = OCIOSO;
+    det.tInicio = 0;
+    det.tFim = 0;
+    det.pico = 0;
+    det.vInicio = 0;
+  }
+
+  function detectorAtualizar(cfg, det, valor, velocidade, tMs) {
+    const v = cfg.limiar < 0 ? -valor : valor;
+    const limiar = Math.abs(cfg.limiar);
+    switch (det.estado) {
+    case OCIOSO:
+      if (v > limiar) {
+        det.estado = CANDIDATO;
+        det.tInicio = tMs;
+        det.pico = v;
+        det.vInicio = velocidade;
+      }
+      break;
+    case CANDIDATO:
+      det.pico = Math.max(det.pico, v);
+      if (v < limiar * HISTERESE) det.estado = OCIOSO;
+      else if (tMs - det.tInicio >= cfg.minMs) det.estado = ATIVO;
+      break;
+    case ATIVO:
+      det.pico = Math.max(det.pico, v);
+      if (v < limiar * HISTERESE) {
+        det.estado = RESFRIAMENTO;
+        det.tFim = tMs;
+        return true;
+      }
+      break;
+    case RESFRIAMENTO:
+      if (tMs - det.tFim >= cfg.resfriamentoMs) det.estado = OCIOSO;
+      break;
+    }
+    return false;
+  }
+
+  function emitirEixo(cfg, det) {
+    const positivo = cfg.limiar > 0;
+    const v0 = det.vInicio;
+    const frenagem = positivo ? v0 < -VELOCIDADE_MIN : v0 > VELOCIDADE_MIN;
+    const frente = frenagem ? v0 > 0 : positivo;
+    const pico = positivo ? det.pico : -det.pico;
+    receber(TOPICO_EVENTOS, {
+      tipo: frenagem ? "frenagem" : "arrancada",
+      sentido: frente ? "frente" : "re",
+      t_ms: Math.round(det.tInicio),
+      duracao_ms: Math.round(det.tFim - det.tInicio),
+      pico: Math.round(pico * 1000) / 1000,
+      v_inicio: Math.round(v0 * 100) / 100,
+    });
+  }
+
+  function emitirEnsaio(tipo, sentido, det, sinal) {
+    receber(TOPICO_EVENTOS, {
+      tipo: tipo,
+      sentido: sentido,
+      t_ms: Math.round(det.tInicio),
+      duracao_ms: Math.round(det.tFim - det.tInicio),
+      pico: Math.round((sinal * det.pico) * 1000) / 1000,
+      v_inicio: Math.round(det.vInicio * 100) / 100,
+    });
+  }
+
+  function maisAtivo(a, b) {
+    const rank = {};
+    rank[OCIOSO] = 0;
+    rank[RESFRIAMENTO] = 1;
+    rank[CANDIDATO] = 2;
+    rank[ATIVO] = 3;
+    return rank[a.estado] >= rank[b.estado] ? a : b;
+  }
+
+  function rotuloEstado(det) {
+    if (det.estado === CANDIDATO) return "candidato";
+    if (det.estado === ATIVO) return "ativo";
+    if (det.estado === RESFRIAMENTO) return "resfriamento";
+    return "ocioso";
+  }
+
+  function pintarMaquina() {
+    const curva = maisAtivo(detAyPos, detAyNeg);
+    const texto =
+      "Arrancada: " + rotuloEstado(detAxPos) +
+      " · Frenagem: " + rotuloEstado(detAxNeg) +
+      " · Curva (ensaio): " + rotuloEstado(curva) +
+      " · Impacto (ensaio): " + rotuloEstado(detAz);
+    if (texto === sim.textoMaquina) return;
+    sim.textoMaquina = texto;
+    el("sim-maquina").textContent = texto;
+  }
+
+  function enrolar(valor, tamanho) {
+    const meio = tamanho / 2;
+    return ((valor + meio) % tamanho + tamanho) % tamanho - meio;
+  }
+
+  function comandos() {
+    const agora = performance.now();
+    if (sim.manobra && agora < sim.manobra.ate) return sim.manobra;
+    sim.manobra = null;
+    let frente = 0;
+    let lado = 0;
+    if (sim.teclas.has("KeyW") || sim.teclas.has("ArrowUp")) frente += 1;
+    if (sim.teclas.has("KeyS") || sim.teclas.has("ArrowDown")) frente -= 1;
+    if (sim.teclas.has("KeyA") || sim.teclas.has("ArrowLeft")) lado += 1;
+    if (sim.teclas.has("KeyD") || sim.teclas.has("ArrowRight")) lado -= 1;
+    let ax = 0;
+    if (frente > 0) ax = 0.55;
+    else if (frente < 0) ax = -0.6;
+    else if (Math.abs(sim.v) > VELOCIDADE_MIN) ax = -Math.sign(sim.v) * 0.08;
+    const gz = lado * 45;
+    const ay = lado !== 0 && Math.abs(sim.v) > 0.2 ? lado * 0.5 : 0;
+    return { ax: ax, ay: ay, az: 0, gz: gz };
+  }
+
+  function passo() {
+    sim.tMs += PASSO_MS;
+    const dt = PASSO_MS / 1000;
+    const cmd = comandos();
+    const ax = cmd.ax;
+    const ay = cmd.ay;
+    const az = cmd.az;
+    const gz = cmd.gz;
+    sim.v += ax * GRAVIDADE * dt;
+    const parado = Math.abs(ax) <= PARADO_ACC_G && Math.abs(ay) <= PARADO_ACC_G &&
+      Math.abs(az) <= PARADO_ACC_G && Math.abs(gz) <= PARADO_GYRO_DPS;
+    sim.paradoMs = parado ? sim.paradoMs + PASSO_MS : 0;
+    if (sim.paradoMs >= PARADO_MS) sim.v = 0;
+
+    const w = gz * Math.PI / 180;
+    sim.proa += w * dt;
+    const nx = sim.x - Math.sin(sim.proa) * sim.v * dt;
+    const ny = sim.y + Math.cos(sim.proa) * sim.v * dt;
+    const salto = Math.hypot(enrolar(nx, PISTA_W) - sim.x, enrolar(ny, PISTA_H) - sim.y);
+    sim.x = enrolar(nx, PISTA_W);
+    sim.y = enrolar(ny, PISTA_H);
+    if (salto > 0.4) sim.trilha.push(null);
+    sim.trilha.push({ x: sim.x, y: sim.y });
+    if (sim.trilha.length > 240) sim.trilha.shift();
+
+    estado.pose = { ax: ax, ay: ay, az: az, gx: 0, gy: 0, gz: gz };
+    sim.soma.ax += ax;
+    sim.soma.ay += ay;
+    sim.soma.az += az;
+    sim.soma.gz += gz;
+    sim.soma.n += 1;
+
+    const cfgAx = { minMs: DURACAO_MIN_MS, resfriamentoMs: RESFRIAMENTO_MS };
+    if (detectorAtualizar(Object.assign({ limiar: LIMIAR_ARRANCADA_G }, cfgAx), detAxPos, ax, sim.v, sim.tMs)) {
+      emitirEixo({ limiar: LIMIAR_ARRANCADA_G }, detAxPos);
+    }
+    if (detectorAtualizar(Object.assign({ limiar: LIMIAR_FRENAGEM_G }, cfgAx), detAxNeg, ax, sim.v, sim.tMs)) {
+      emitirEixo({ limiar: LIMIAR_FRENAGEM_G }, detAxNeg);
+    }
+    const cfgEnsaio = { minMs: DURACAO_MIN_MS, resfriamentoMs: RESFRIAMENTO_MS };
+    if (detectorAtualizar(Object.assign({ limiar: 0.4 }, cfgEnsaio), detAyPos, ay, sim.v, sim.tMs)) {
+      emitirEnsaio("curva", "esquerda", detAyPos, 1);
+    }
+    if (detectorAtualizar(Object.assign({ limiar: -0.4 }, cfgEnsaio), detAyNeg, ay, sim.v, sim.tMs)) {
+      emitirEnsaio("curva", "direita", detAyNeg, -1);
+    }
+    if (detectorAtualizar(Object.assign({ limiar: 1 }, cfgEnsaio), detAz, az, sim.v, sim.tMs)) {
+      emitirEnsaio("impacto", "cima", detAz, 1);
+    }
+  }
+
+  function emitirResumo() {
+    const n = sim.soma.n;
+    if (!n) return;
+    receber(TOPICO, {
+      temp: 26.5,
+      press: 101325,
+      ax: sim.soma.ax / n,
+      ay: sim.soma.ay / n,
+      az: sim.soma.az / n,
+      gx: 0,
+      gy: 0,
+      gz: sim.soma.gz / n,
+      mpu_temp: 31,
+    });
+    sim.soma.ax = sim.soma.ay = sim.soma.az = sim.soma.gx = sim.soma.gy = sim.soma.gz = sim.soma.n = 0;
+  }
+
+  function desenharPista() {
+    const canvas = el("canvas-pista");
+    if (!canvas) return;
+    const { ctx, largura, altura } = preparar(canvas);
+    ctx.clearRect(0, 0, largura, altura);
+    ctx.fillStyle = "#12151c";
+    ctx.fillRect(0, 0, largura, altura);
+    ctx.strokeStyle = COR.grade;
+    ctx.strokeRect(8, 8, largura - 16, altura - 16);
+
+    const esc = Math.min((largura - 32) / PISTA_W, (altura - 32) / PISTA_H);
+    const ox = largura / 2;
+    const oy = altura / 2;
+    function px(wx, wy) {
+      return [ox + wx * esc, oy - wy * esc];
+    }
+
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(108, 182, 255, 0.55)";
+    ctx.beginPath();
+    let desenhando = false;
+    for (const ponto of sim.trilha) {
+      if (!ponto) {
+        desenhando = false;
+        continue;
+      }
+      const p = px(ponto.x, ponto.y);
+      if (!desenhando) {
+        ctx.moveTo(p[0], p[1]);
+        desenhando = true;
+      } else ctx.lineTo(p[0], p[1]);
+    }
+    ctx.stroke();
+
+    const c = px(sim.x, sim.y);
+    ctx.save();
+    ctx.translate(c[0], c[1]);
+    ctx.rotate(-sim.proa);
+    ctx.fillStyle = "#222836";
+    ctx.strokeStyle = "#e6a23c";
+    ctx.lineWidth = 2;
+    ctx.fillRect(-7, -12, 14, 24);
+    ctx.strokeRect(-7, -12, 14, 24);
+    ctx.fillStyle = "#e6a23c";
+    ctx.fillRect(-4, -16, 8, 4);
+    ctx.restore();
+  }
+
+  function quadro(agora) {
+    if (!simulando) return;
+    if (!sim.ultimoQuadro) sim.ultimoQuadro = agora;
+    sim.acumulado += Math.min(100, agora - sim.ultimoQuadro);
+    sim.ultimoQuadro = agora;
+    while (sim.acumulado >= PASSO_MS) {
+      passo();
+      sim.acumulado -= PASSO_MS;
+    }
+    desenharCarro();
+    desenharPista();
+    pintarMaquina();
+    if (agora >= sim.proximoResumo) {
+      emitirResumo();
+      sim.proximoResumo += 500;
+    }
+    sim.quadroId = window.requestAnimationFrame(quadro);
+  }
+
+  function limparPainel() {
+    estado.amostras = [];
+    estado.eventos = [];
+    estado.ultimoPorTipo = {};
+    estado.ultimo = null;
+    estado.ultimoResumo = 0;
+    estado.pose = null;
+    pintarTudo();
+  }
+
+  function pararMqtt() {
+    if (!clienteMqtt) return;
+    const cliente = clienteMqtt;
+    clienteMqtt = null;
+    cliente.end(true);
+  }
+
+  function iniciarSim() {
+    simulando = true;
+    estado.fase = "simulacao";
+    pararMqtt();
+    sim.tMs = 0;
+    sim.v = 0;
+    sim.proa = 0;
+    sim.x = 0;
+    sim.y = 0;
+    sim.paradoMs = 0;
+    sim.acumulado = 0;
+    sim.ultimoQuadro = 0;
+    sim.proximoResumo = performance.now() + 500;
+    sim.manobra = null;
+    sim.teclas.clear();
+    sim.trilha = [{ x: 0, y: 0 }];
+    sim.soma = { ax: 0, ay: 0, az: 0, gx: 0, gy: 0, gz: 0, n: 0 };
+    sim.textoMaquina = "";
+    zerarDetector(detAxPos);
+    zerarDetector(detAxNeg);
+    zerarDetector(detAyPos);
+    zerarDetector(detAyNeg);
+    zerarDetector(detAz);
+    limparPainel();
+    el("sim-corpo").hidden = false;
+    el("sim-ligar").classList.add("ligado");
+    el("sim-ligar").setAttribute("aria-pressed", "true");
+    el("sim-ligar").textContent = "Parar simulação";
+    pintarLigacao();
+    pintarMaquina();
+    sim.quadroId = window.requestAnimationFrame(quadro);
+  }
+
+  function pararSim() {
+    simulando = false;
+    window.cancelAnimationFrame(sim.quadroId);
+    sim.manobra = null;
+    sim.teclas.clear();
+    estado.pose = null;
+    estado.fase = "conectando";
+    el("sim-corpo").hidden = true;
+    el("sim-ligar").classList.remove("ligado");
+    el("sim-ligar").setAttribute("aria-pressed", "false");
+    el("sim-ligar").textContent = "Simular";
+    desenharCarro();
+    pintarLigacao();
+    conectar();
+  }
+
+  function dispararManobra(nome) {
+    if (!simulando) return;
+    const agora = performance.now();
+    if (nome === "arrancada") {
+      sim.manobra = { ax: 0.62, ay: 0, az: 0, gz: 0, ate: agora + 280 };
+    } else if (nome === "frenagem") {
+      if (sim.v < 0.4) sim.v = 1.4;
+      sim.manobra = { ax: -0.7, ay: 0, az: 0, gz: 0, ate: agora + 320 };
+    } else if (nome === "curva") {
+      if (sim.v < 0.4) sim.v = 0.8;
+      sim.manobra = { ax: 0.05, ay: 0.55, az: 0, gz: 40, ate: agora + 450 };
+    } else if (nome === "impacto") {
+      sim.manobra = { ax: 0, ay: 0, az: 1.4, gz: 0, ate: agora + 180 };
+    } else if (nome === "curto") {
+      sim.manobra = { ax: 0.7, ay: 0, az: 0, gz: 0, ate: agora + 40 };
+    }
+  }
+
+  function teclaSim(evento, ativa) {
+    if (!simulando) return;
+    const codigos = ["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+    if (codigos.indexOf(evento.code) < 0) return;
+    if (ativa) sim.teclas.add(evento.code);
+    else sim.teclas.delete(evento.code);
+    evento.preventDefault();
+  }
+
+  el("sim-ligar").addEventListener("click", function () {
+    if (simulando) pararSim();
+    else iniciarSim();
+  });
+  document.querySelectorAll("[data-manobra]").forEach(function (botao) {
+    botao.addEventListener("click", function () {
+      dispararManobra(botao.getAttribute("data-manobra"));
+    });
+  });
+  window.addEventListener("keydown", function (evento) { teclaSim(evento, true); });
+  window.addEventListener("keyup", function (evento) { teclaSim(evento, false); });
+  window.addEventListener("blur", function () { sim.teclas.clear(); });
 
   el("nota-topicos").textContent = TOPICO + " e " + TOPICO_EVENTOS;
   el("nota-carro").textContent =
@@ -546,5 +970,8 @@
   pintarTudo();
   conectar();
   setInterval(pintarLigacao, 1000);
-  window.addEventListener("resize", desenharGraficos);
+  window.addEventListener("resize", function () {
+    desenharGraficos();
+    if (simulando) desenharPista();
+  });
 })();
