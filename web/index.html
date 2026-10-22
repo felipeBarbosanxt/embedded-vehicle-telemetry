@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telemetria do carrinho</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="pagina">
+    <header class="cabecalho">
+      <div>
+        <p class="olho">ESP32 · HW-290</p>
+        <h1>Telemetria do carrinho</h1>
+        <p class="subtitulo" id="nota-topicos"></p>
+      </div>
+      <div class="ligacao">
+        <span class="ponto" id="ponto"></span>
+        <div>
+          <strong id="status-conexao">Conectando</strong>
+          <span id="status-dados">Abrindo o canal com o broker</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="topo">
+      <article class="painel carro-painel">
+        <h2>Carrinho</h2>
+        <svg id="carro" viewBox="0 0 280 360" role="img" aria-label="Carrinho visto de cima, com setas de aceleração">
+          <defs>
+            <marker id="ponta-ax" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#e6a23c"></path>
+            </marker>
+            <marker id="ponta-ay" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#6cb6ff"></path>
+            </marker>
+          </defs>
+          <g id="carro-grupo" transform="translate(140,176)">
+            <rect class="roda" x="-52" y="-62" width="16" height="32" rx="4"></rect>
+            <rect class="roda" x="36" y="-62" width="16" height="32" rx="4"></rect>
+            <rect class="roda" x="-52" y="30" width="16" height="32" rx="4"></rect>
+            <rect class="roda" x="36" y="30" width="16" height="32" rx="4"></rect>
+            <rect class="chassi" x="-30" y="-74" width="60" height="148" rx="18"></rect>
+            <rect class="nariz" x="-14" y="-84" width="28" height="12" rx="4"></rect>
+            <line id="seta-ax" class="seta ax" x1="0" y1="0" x2="0" y2="0"></line>
+            <line id="seta-ay" class="seta ay" x1="0" y1="0" x2="0" y2="0"></line>
+          </g>
+        </svg>
+        <p class="nota" id="nota-carro"></p>
+      </article>
+
+      <article class="painel">
+        <h2>Diagrama g-g</h2>
+        <div class="grafico grafico-gg">
+          <canvas id="canvas-gg"></canvas>
+          <p class="vazio" id="vazio-gg">Aguardando amostras.</p>
+        </div>
+        <p class="nota">Cima é a frente. A esquerda da tela é o lado esquerdo do carrinho.</p>
+      </article>
+
+      <div class="cartas">
+        <article class="painel carta" id="carta-arrancada">
+          <h2>Arrancada</h2>
+          <div class="corpo"></div>
+        </article>
+        <article class="painel carta" id="carta-frenagem">
+          <h2>Frenagem</h2>
+          <div class="corpo"></div>
+        </article>
+        <p class="nota" id="nota-eventos"></p>
+      </div>
+    </section>
+
+    <section class="leituras" aria-label="Último resumo">
+      <article class="painel leitura"><h2>ax</h2><p id="val-ax">—</p><span>g</span></article>
+      <article class="painel leitura"><h2>ay</h2><p id="val-ay">—</p><span>g</span></article>
+      <article class="painel leitura"><h2>az</h2><p id="val-az">—</p><span>g</span></article>
+      <article class="painel leitura"><h2>gx</h2><p id="val-gx">—</p><span>°/s</span></article>
+      <article class="painel leitura"><h2>gy</h2><p id="val-gy">—</p><span>°/s</span></article>
+      <article class="painel leitura"><h2>gz</h2><p id="val-gz">—</p><span>°/s</span></article>
+      <article class="painel leitura"><h2>BMP180</h2><p id="val-temp">—</p><span>°C</span></article>
+      <article class="painel leitura"><h2>Pressão</h2><p id="val-press">—</p><span id="val-press-pa">hPa</span></article>
+      <article class="painel leitura"><h2>MPU6050</h2><p id="val-mpu">—</p><span>°C</span></article>
+    </section>
+
+    <section class="graficos">
+      <article class="painel">
+        <h2>Aceleração</h2>
+        <ul class="legenda">
+          <li><i class="amostra ax"></i> ax</li>
+          <li><i class="amostra ay"></i> ay</li>
+          <li><i class="amostra az"></i> az</li>
+          <li><i class="amostra limiar-arrancada"></i> limiar de arrancada</li>
+          <li><i class="amostra limiar-frenagem"></i> limiar de frenagem</li>
+        </ul>
+        <div class="grafico">
+          <canvas id="canvas-acel"></canvas>
+          <p class="vazio" id="vazio-acel">Aguardando o resumo.</p>
+        </div>
+        <p class="nota">Escala inicial de ±1 g. As linhas tracejadas são os limiares gravados no firmware.</p>
+      </article>
+      <article class="painel">
+        <h2>Giroscópio</h2>
+        <ul class="legenda">
+          <li><i class="amostra ax"></i> gx</li>
+          <li><i class="amostra ay"></i> gy</li>
+          <li><i class="amostra az"></i> gz</li>
+        </ul>
+        <div class="grafico">
+          <canvas id="canvas-giro"></canvas>
+          <p class="vazio" id="vazio-giro">Aguardando o resumo.</p>
+        </div>
+        <p class="nota">Escala inicial de ±50 °/s. Amplia se a leitura passar disso.</p>
+      </article>
+    </section>
+
+    <section class="painel">
+      <h2>Eventos recebidos</h2>
+      <ol class="lista-eventos" id="lista-eventos"></ol>
+    </section>
+  </div>
+  <script src="vendor/mqtt.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
