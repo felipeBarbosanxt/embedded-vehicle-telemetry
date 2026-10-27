@@ -58,7 +58,8 @@
     if (tipo === "frenagem") return "Frenagem";
     if (tipo === "curva") return "Curva";
     if (tipo === "impacto") return "Impacto";
-    return tipo;
+    if (!tipo) return "Evento";
+    return tipo.charAt(0).toUpperCase() + tipo.slice(1);
   }
 
   function rotuloSentido(sentido) {
@@ -67,6 +68,7 @@
     if (sentido === "esquerda") return "Esquerda";
     if (sentido === "direita") return "Direita";
     if (sentido === "cima") return "Cima";
+    if (sentido === "baixo") return "Baixo";
     return sentido;
   }
 
@@ -423,10 +425,7 @@
     ctx.stroke();
 
     ctx.setLineDash([4, 4]);
-    for (const linha of [
-      { y: LIMIAR_ARRANCADA_G, cor: COR.ax },
-      { y: LIMIAR_FRENAGEM_G, cor: COR.frenagem },
-    ]) {
+    for (const linha of linhasLimiar()) {
       const y = cy - linha.y * esc;
       ctx.strokeStyle = linha.cor;
       ctx.beginPath();
@@ -463,10 +462,7 @@
       min: -1,
       max: 1,
       casas: 1,
-      linhas: [
-        { y: LIMIAR_ARRANCADA_G, cor: COR.ax },
-        { y: LIMIAR_FRENAGEM_G, cor: COR.frenagem },
-      ],
+      linhas: linhasLimiar(),
     });
     desenharTempo(el("canvas-giro"), [
       { cor: COR.ax, valores: coluna("gx") },
@@ -592,11 +588,53 @@
     return { estado: OCIOSO, tInicio: 0, tFim: 0, pico: 0, vInicio: 0 };
   }
 
-  const detAxPos = detectorNovo();
-  const detAxNeg = detectorNovo();
-  const detAyPos = detectorNovo();
-  const detAyNeg = detectorNovo();
-  const detAz = detectorNovo();
+  let proximoId = 1;
+  function itemCatalogo(parcial) {
+    proximoId += 1;
+    const item = {
+      id: String(proximoId),
+      nome: parcial.nome,
+      eixo: parcial.eixo,
+      limiar: parcial.limiar,
+      minMs: parcial.minMs || DURACAO_MIN_MS,
+      resfriamentoMs: parcial.resfriamentoMs || RESFRIAMENTO_MS,
+      ativo: parcial.ativo !== false,
+      origem: parcial.origem || "ensaio",
+      det: detectorNovo(),
+    };
+    return item;
+  }
+
+  const catalogo = [
+    itemCatalogo({ nome: "Arrancada", eixo: "ax", limiar: LIMIAR_ARRANCADA_G, origem: "firmware" }),
+    itemCatalogo({ nome: "Frenagem", eixo: "ax", limiar: LIMIAR_FRENAGEM_G, origem: "firmware" }),
+    itemCatalogo({ nome: "Curva", eixo: "ay", limiar: 0.4, origem: "ensaio" }),
+    itemCatalogo({ nome: "Curva", eixo: "ay", limiar: -0.4, origem: "ensaio" }),
+    itemCatalogo({ nome: "Impacto", eixo: "az", limiar: 1, origem: "ensaio" }),
+  ];
+
+  function linhasLimiar() {
+    const linhas = [];
+    for (const item of catalogo) {
+      if (!item.ativo || item.origem !== "firmware" || item.eixo !== "ax") continue;
+      linhas.push({ y: item.limiar, cor: item.limiar < 0 ? COR.frenagem : COR.ax });
+    }
+    return linhas;
+  }
+
+  function slugTipo(nome) {
+    const base = nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const slug = base.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return slug || "evento";
+  }
+
+  function sentidoDoEixo(eixo, limiar) {
+    const positivo = limiar > 0;
+    if (eixo === "ax") return positivo ? "frente" : "re";
+    if (eixo === "ay" || eixo === "gz") return positivo ? "esquerda" : "direita";
+    if (eixo === "az") return positivo ? "cima" : "baixo";
+    return positivo ? "positivo" : "negativo";
+  }
 
   function zerarDetector(det) {
     det.estado = OCIOSO;
@@ -665,15 +703,6 @@
     });
   }
 
-  function maisAtivo(a, b) {
-    const rank = {};
-    rank[OCIOSO] = 0;
-    rank[RESFRIAMENTO] = 1;
-    rank[CANDIDATO] = 2;
-    rank[ATIVO] = 3;
-    return rank[a.estado] >= rank[b.estado] ? a : b;
-  }
-
   function rotuloEstado(det) {
     if (det.estado === CANDIDATO) return "candidato";
     if (det.estado === ATIVO) return "ativo";
@@ -682,15 +711,18 @@
   }
 
   function pintarMaquina() {
-    const curva = maisAtivo(detAyPos, detAyNeg);
-    const texto =
-      "Arrancada: " + rotuloEstado(detAxPos) +
-      " · Frenagem: " + rotuloEstado(detAxNeg) +
-      " · Curva (ensaio): " + rotuloEstado(curva) +
-      " · Impacto (ensaio): " + rotuloEstado(detAz);
+    const partes = [];
+    for (const item of catalogo) {
+      const marca = item.origem === "ensaio" ? " (ensaio)" : "";
+      partes.push(item.nome + marca + ": " + rotuloEstado(item.det));
+      const selo = document.querySelector('.estado-det[data-id="' + item.id + '"]');
+      if (selo) selo.textContent = rotuloEstado(item.det);
+    }
+    const texto = partes.join(" · ");
     if (texto === sim.textoMaquina) return;
     sim.textoMaquina = texto;
-    el("sim-maquina").textContent = texto;
+    const linha = el("sim-maquina");
+    if (linha) linha.textContent = texto;
   }
 
   function enrolar(valor, tamanho) {
@@ -749,22 +781,18 @@
     sim.soma.gz += gz;
     sim.soma.n += 1;
 
-    const cfgAx = { minMs: DURACAO_MIN_MS, resfriamentoMs: RESFRIAMENTO_MS };
-    if (detectorAtualizar(Object.assign({ limiar: LIMIAR_ARRANCADA_G }, cfgAx), detAxPos, ax, sim.v, sim.tMs)) {
-      emitirEixo({ limiar: LIMIAR_ARRANCADA_G }, detAxPos);
-    }
-    if (detectorAtualizar(Object.assign({ limiar: LIMIAR_FRENAGEM_G }, cfgAx), detAxNeg, ax, sim.v, sim.tMs)) {
-      emitirEixo({ limiar: LIMIAR_FRENAGEM_G }, detAxNeg);
-    }
-    const cfgEnsaio = { minMs: DURACAO_MIN_MS, resfriamentoMs: RESFRIAMENTO_MS };
-    if (detectorAtualizar(Object.assign({ limiar: 0.4 }, cfgEnsaio), detAyPos, ay, sim.v, sim.tMs)) {
-      emitirEnsaio("curva", "esquerda", detAyPos, 1);
-    }
-    if (detectorAtualizar(Object.assign({ limiar: -0.4 }, cfgEnsaio), detAyNeg, ay, sim.v, sim.tMs)) {
-      emitirEnsaio("curva", "direita", detAyNeg, -1);
-    }
-    if (detectorAtualizar(Object.assign({ limiar: 1 }, cfgEnsaio), detAz, az, sim.v, sim.tMs)) {
-      emitirEnsaio("impacto", "cima", detAz, 1);
+    const sinais = { ax: ax, ay: ay, az: az, gz: gz };
+    for (const item of catalogo) {
+      if (!item.ativo) continue;
+      const valor = sinais[item.eixo];
+      const cfg = {
+        limiar: item.limiar,
+        minMs: item.minMs,
+        resfriamentoMs: item.resfriamentoMs,
+      };
+      if (!detectorAtualizar(cfg, item.det, valor, sim.v, sim.tMs)) continue;
+      if (item.origem === "firmware" && item.eixo === "ax") emitirEixo(cfg, item.det);
+      else emitirEnsaio(slugTipo(item.nome), sentidoDoEixo(item.eixo, item.limiar), item.det, item.limiar < 0 ? -1 : 1);
     }
   }
 
@@ -887,13 +915,8 @@
     sim.trilha = [{ x: 0, y: 0 }];
     sim.soma = { ax: 0, ay: 0, az: 0, gx: 0, gy: 0, gz: 0, n: 0 };
     sim.textoMaquina = "";
-    zerarDetector(detAxPos);
-    zerarDetector(detAxNeg);
-    zerarDetector(detAyPos);
-    zerarDetector(detAyNeg);
-    zerarDetector(detAz);
+    for (const item of catalogo) zerarDetector(item.det);
     limparPainel();
-    el("sim-corpo").hidden = false;
     el("sim-ligar").classList.add("ligado");
     el("sim-ligar").setAttribute("aria-pressed", "true");
     el("sim-ligar").textContent = "Parar simulação";
@@ -909,7 +932,6 @@
     sim.teclas.clear();
     estado.pose = null;
     estado.fase = "conectando";
-    el("sim-corpo").hidden = true;
     el("sim-ligar").classList.remove("ligado");
     el("sim-ligar").setAttribute("aria-pressed", "false");
     el("sim-ligar").textContent = "Simular";
@@ -958,14 +980,228 @@
   window.addEventListener("keyup", function (evento) { teclaSim(evento, false); });
   window.addEventListener("blur", function () { sim.teclas.clear(); });
 
-  el("nota-topicos").textContent = TOPICO + " e " + TOPICO_EVENTOS;
   el("nota-carro").textContent =
     "A seta âmbar segue ax (frente quando positivo) e a azul segue ay (esquerda quando positivo). " +
     "O giro do desenho acompanha a taxa gz e não é a proa.";
   el("nota-eventos").textContent =
-    "O cartão atualiza quando a placa publica o evento terminado. Limiares do firmware: " +
+    "O cartão atualiza quando o evento termina. Limiares compilados na placa: " +
     fmt(LIMIAR_ARRANCADA_G, 2) + " g e " + fmt(LIMIAR_FRENAGEM_G, 2) +
     " g, mínimo de " + DURACAO_MIN_MS + " ms, resfriamento de " + RESFRIAMENTO_MS + " ms.";
+  el("dispositivo-topicos").textContent = TOPICO + " e " + TOPICO_EVENTOS;
+
+  const SECOES = {
+    "ao-vivo": "Ao vivo",
+    eventos: "Eventos",
+    simulacao: "Simulação",
+    dispositivo: "Dispositivo",
+  };
+  const mqEstreita = window.matchMedia("(max-width: 800px)");
+  let fichaId = null;
+
+  function faixaDoEixo(eixo) {
+    return eixo === "gz" ? 2000 : 16;
+  }
+
+  function mostrarSecao(id) {
+    if (!SECOES[id]) id = "ao-vivo";
+    document.querySelectorAll(".secao").forEach(function (secao) {
+      secao.hidden = secao.id !== "secao-" + id;
+    });
+    document.querySelectorAll(".nav-item[data-secao]").forEach(function (botao) {
+      const ativo = botao.getAttribute("data-secao") === id;
+    botao.classList.toggle("ativo", ativo);
+    if (ativo) botao.setAttribute("aria-current", "page");
+    else botao.removeAttribute("aria-current");
+    });
+    el("titulo-secao").textContent = SECOES[id];
+    if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
+    if (mqEstreita.matches) document.body.classList.add("barra-fechada");
+    sincronizarBarra();
+    window.requestAnimationFrame(function () {
+      if (id === "ao-vivo") {
+        desenharGraficos();
+        desenharCarro();
+      }
+      if (id === "simulacao" && simulando) desenharPista();
+    });
+  }
+
+  function sincronizarBarra() {
+    const fechada = document.body.classList.contains("barra-fechada");
+    const botao = el("recolher");
+    botao.setAttribute("aria-label", fechada ? "Expandir" : "Recolher");
+    botao.querySelector(".rotulo").textContent = fechada ? "Expandir" : "Recolher";
+    botao.querySelector(".icone").textContent = fechada ? "›" : "‹";
+  }
+
+  function aplicarBarraInicial() {
+    const salva = localStorage.getItem("tcc-barra") === "1";
+    document.body.classList.toggle("barra-fechada", mqEstreita.matches || salva);
+    sincronizarBarra();
+  }
+
+  function alternarBarra() {
+    const fechada = !document.body.classList.contains("barra-fechada");
+    document.body.classList.toggle("barra-fechada", fechada);
+    sincronizarBarra();
+    if (!mqEstreita.matches) localStorage.setItem("tcc-barra", fechada ? "1" : "0");
+    window.requestAnimationFrame(function () {
+      desenharGraficos();
+      if (simulando) desenharPista();
+    });
+  }
+
+  function origemTexto(item) {
+    return item.origem === "firmware" ? "Placa" : "Ensaio";
+  }
+
+  function pintarCatalogo() {
+    const lista = el("catalogo");
+    lista.replaceChildren();
+    for (const item of catalogo) {
+      const li = document.createElement("li");
+      const nome = document.createElement("div");
+      const titulo = document.createElement("div");
+      titulo.className = "nome";
+      titulo.textContent = item.nome;
+      const origem = document.createElement("div");
+      origem.className = "origem";
+      origem.textContent = origemTexto(item) + " · " + item.eixo + " · " + fmt(item.limiar, 2);
+      nome.append(titulo, origem);
+      const estadoDet = document.createElement("span");
+      estadoDet.className = "estado-det";
+      estadoDet.dataset.id = item.id;
+      estadoDet.textContent = rotuloEstado(item.det);
+      const configurar = document.createElement("button");
+      configurar.type = "button";
+      configurar.textContent = "Configurar";
+      configurar.addEventListener("click", function () { abrirFicha(item.id); });
+      li.append(nome, estadoDet, configurar);
+      if (item.origem !== "firmware") {
+        const excluir = document.createElement("button");
+        excluir.type = "button";
+        excluir.textContent = "Excluir";
+        excluir.addEventListener("click", function () {
+          const indice = catalogo.indexOf(item);
+          if (indice >= 0) catalogo.splice(indice, 1);
+          if (fichaId === item.id) limparFicha();
+          pintarCatalogo();
+          desenharGraficos();
+        });
+        li.append(excluir);
+      }
+      lista.append(li);
+    }
+    sim.textoMaquina = "";
+    pintarMaquina();
+  }
+
+  function limparFicha() {
+    fichaId = null;
+    const form = el("ficha-evento");
+    form.reset();
+    form.elements.minMs.value = String(DURACAO_MIN_MS);
+    form.elements.resfriamentoMs.value = String(RESFRIAMENTO_MS);
+    form.elements.ativo.checked = true;
+    el("ficha-titulo").textContent = "Novo evento";
+    el("ficha-nota").textContent = "O evento salvo entra na simulação. A placa não recebe esta ficha.";
+    el("ficha-cancelar").hidden = true;
+  }
+
+  function abrirFicha(id) {
+    const item = catalogo.find(function (candidato) { return candidato.id === id; });
+    if (!item) return;
+    fichaId = id;
+    const form = el("ficha-evento");
+    form.elements.nome.value = item.nome;
+    form.elements.eixo.value = item.eixo;
+    form.elements.limiar.value = String(item.limiar);
+    form.elements.minMs.value = String(item.minMs);
+    form.elements.resfriamentoMs.value = String(item.resfriamentoMs);
+    form.elements.ativo.checked = item.ativo;
+    el("ficha-titulo").textContent = "Configurar " + item.nome;
+    el("ficha-nota").textContent = item.origem === "firmware"
+      ? "Vale na simulação. Na placa este detector continua com o limiar compilado."
+      : "Ensaio. O simulador passa a usar estes números.";
+    el("ficha-cancelar").hidden = false;
+    form.scrollIntoView({ block: "nearest" });
+  }
+
+  function lerFicha(form) {
+    const nome = form.elements.nome.value.trim();
+    const eixo = form.elements.eixo.value;
+    const limiar = Number(form.elements.limiar.value);
+    const minMs = Number(form.elements.minMs.value);
+    const resfriamentoMs = Number(form.elements.resfriamentoMs.value);
+    const faixa = faixaDoEixo(eixo);
+    if (!nome) return "Dê um nome ao evento.";
+    if (!Number.isFinite(limiar) || limiar === 0 || Math.abs(limiar) > faixa) {
+      return "O limiar fica entre -" + faixa + " e " + faixa + ", e não pode ser zero.";
+    }
+    if (!Number.isFinite(minMs) || minMs < 20) return "A duração mínima é de 20 ms.";
+    if (!Number.isFinite(resfriamentoMs) || resfriamentoMs < 0) return "O resfriamento não pode ser negativo.";
+    return {
+      nome: nome,
+      eixo: eixo,
+      limiar: limiar,
+      minMs: minMs,
+      resfriamentoMs: resfriamentoMs,
+      ativo: form.elements.ativo.checked,
+    };
+  }
+
+  el("ficha-evento").addEventListener("submit", function (evento) {
+    evento.preventDefault();
+    const lido = lerFicha(evento.currentTarget);
+    if (typeof lido === "string") {
+      el("ficha-nota").textContent = lido;
+      return;
+    }
+    if (fichaId) {
+      const item = catalogo.find(function (candidato) { return candidato.id === fichaId; });
+      if (item) {
+        item.nome = lido.nome;
+        item.eixo = lido.eixo;
+        item.limiar = lido.limiar;
+        item.minMs = lido.minMs;
+        item.resfriamentoMs = lido.resfriamentoMs;
+        item.ativo = lido.ativo;
+        zerarDetector(item.det);
+      }
+    } else {
+      catalogo.push(itemCatalogo(lido));
+    }
+    pintarCatalogo();
+    desenharGraficos();
+    limparFicha();
+    el("ficha-nota").textContent = "Salvo na simulação.";
+  });
+  el("ficha-cancelar").addEventListener("click", limparFicha);
+  el("novo-evento").addEventListener("click", function () {
+    limparFicha();
+    el("ficha-evento").scrollIntoView({ block: "nearest" });
+    el("ficha-evento").elements.nome.focus();
+  });
+
+  document.querySelectorAll(".nav-item[data-secao]").forEach(function (botao) {
+    botao.addEventListener("click", function () {
+      mostrarSecao(botao.getAttribute("data-secao"));
+    });
+  });
+  el("recolher").addEventListener("click", alternarBarra);
+  el("abrir-menu").addEventListener("click", alternarBarra);
+  el("velo").addEventListener("click", function () {
+    document.body.classList.add("barra-fechada");
+    sincronizarBarra();
+  });
+  window.addEventListener("hashchange", function () {
+    mostrarSecao(location.hash.slice(1));
+  });
+
+  aplicarBarraInicial();
+  pintarCatalogo();
+  limparFicha();
+  mostrarSecao(location.hash.slice(1));
 
   pintarTudo();
   conectar();

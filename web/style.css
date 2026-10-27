@@ -23,15 +23,105 @@ body {
   font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
 }
 
-.pagina {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 24px 20px 48px;
+.app {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 100vh;
 }
+
+body.barra-fechada .app { grid-template-columns: 72px minmax(0, 1fr); }
+
+.barra {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 12px;
+  background: #12151c;
+  border-right: 1px solid var(--linha);
+}
+
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+.marca-icone {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #222836;
+  color: var(--ax);
+  flex: 0 0 auto;
+}
+
+.menu { display: flex; flex-direction: column; gap: 4px; }
+
+.recolher { margin-top: auto; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+  color: var(--mudo);
+}
+
+.nav-item .icone { width: 1.2em; text-align: center; flex: 0 0 auto; }
+
+.nav-item.ativo {
+  background: #222836;
+  color: var(--texto);
+  border-color: var(--linha);
+}
+
+body.barra-fechada .rotulo,
+body.barra-fechada .marca-texto { display: none; }
+
+.velo { display: none; }
+
+.miolo { min-width: 0; display: flex; flex-direction: column; }
+
+.topo-barra {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: rgba(14, 17, 22, 0.94);
+  border-bottom: 1px solid var(--linha);
+}
+
+.topo-barra h1 { font-size: 20px; margin-right: auto; }
+
+.so-estreito { display: none; }
+
+.conteudo {
+  max-width: 1120px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.secao { display: flex; flex-direction: column; gap: 14px; }
+.secao[hidden] { display: none; }
 
 h1, h2, p { margin: 0; }
 
-h1 { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; }
+h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
 
 h2 {
   font-size: 13px;
@@ -53,16 +143,6 @@ h2 {
   color: var(--mudo);
   font-size: 13px;
 }
-
-.cabecalho {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-
-.cabecalho .subtitulo { margin-top: 6px; }
 
 .ligacao {
   display: flex;
@@ -126,7 +206,7 @@ button.ligado { border-color: var(--ok); color: var(--ok); }
 
 .grafico-pista { margin-top: 10px; }
 
-.topo {
+.grade-vivo {
   display: grid;
   grid-template-columns: 260px minmax(240px, 320px) 1fr;
   gap: 14px;
@@ -250,6 +330,54 @@ button.ligado { border-color: var(--ok); color: var(--ok); }
 
 .grafico .vazio[hidden] { display: none; }
 
+.catalogo {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.catalogo li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) auto auto auto;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--painel-2);
+  border-radius: 8px;
+}
+
+.catalogo .nome { font-weight: 650; }
+.catalogo .origem { color: var(--mudo); font-size: 12px; }
+.catalogo .estado-det { font-variant-numeric: tabular-nums; }
+
+.ficha {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin-top: 12px;
+}
+
+.ficha label { display: flex; flex-direction: column; gap: 4px; color: var(--mudo); font-size: 13px; }
+.ficha .largo { grid-column: 1 / -1; }
+.ficha .check { flex-direction: row; align-items: center; color: var(--texto); }
+
+input, select {
+  font: inherit;
+  color: var(--texto);
+  background: #12151c;
+  border: 1px solid var(--linha);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--ay);
+  outline-offset: 2px;
+}
+
 .lista-eventos {
   list-style: none;
   margin: 12px 0 0;
@@ -289,10 +417,42 @@ button.ligado { border-color: var(--ok); color: var(--ok); }
 
 @media (prefers-reduced-motion: reduce) {
   .pulso { animation: none; }
+  .barra { transition: none; }
 }
 
 @media (max-width: 980px) {
-  .topo, .graficos { grid-template-columns: 1fr; }
+  .grade-vivo, .graficos, .ficha, .catalogo li { grid-template-columns: 1fr; }
   .leituras { grid-template-columns: repeat(3, 1fr); }
-  .cabecalho { flex-direction: column; align-items: stretch; }
+}
+
+@media (max-width: 800px) {
+  .app { grid-template-columns: 1fr; }
+  body.barra-fechada .app { grid-template-columns: 1fr; }
+
+  .barra {
+    position: fixed;
+    z-index: 5;
+    width: 220px;
+    transform: translateX(-105%);
+    transition: transform 0.18s ease;
+  }
+
+  body:not(.barra-fechada) .barra { transform: none; }
+  body.barra-fechada .rotulo,
+  body.barra-fechada .marca-texto { display: initial; }
+
+  .velo {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 4;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  body:not(.barra-fechada) .velo { display: block; }
+  .so-estreito { display: inline-flex; }
+  .ligacao { min-width: 0; }
+  .topo-barra { padding-right: 12px; }
 }

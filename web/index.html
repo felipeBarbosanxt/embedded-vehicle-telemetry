@@ -7,138 +7,200 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="pagina">
-    <header class="cabecalho">
-      <div>
-        <p class="olho">ESP32 · HW-290</p>
-        <h1>Telemetria do carrinho</h1>
-        <p class="subtitulo" id="nota-topicos"></p>
-      </div>
-      <div class="ligacao">
-        <span class="ponto" id="ponto"></span>
-        <div>
-          <strong id="status-conexao">Conectando</strong>
-          <span id="status-dados">Abrindo o canal com o broker</span>
+  <div class="app">
+    <aside class="barra" id="barra">
+      <p class="marca"><span class="marca-icone">H</span><span class="marca-texto">HW-290</span></p>
+      <nav class="menu" aria-label="Seções">
+        <button type="button" class="nav-item" data-secao="ao-vivo" aria-label="Ao vivo"><span class="icone" aria-hidden="true">●</span><span class="rotulo">Ao vivo</span></button>
+        <button type="button" class="nav-item" data-secao="eventos" aria-label="Eventos"><span class="icone" aria-hidden="true">▤</span><span class="rotulo">Eventos</span></button>
+        <button type="button" class="nav-item" data-secao="simulacao" aria-label="Simulação"><span class="icone" aria-hidden="true">▷</span><span class="rotulo">Simulação</span></button>
+        <button type="button" class="nav-item" data-secao="dispositivo" aria-label="Dispositivo"><span class="icone" aria-hidden="true">□</span><span class="rotulo">Dispositivo</span></button>
+      </nav>
+      <button type="button" class="nav-item recolher" id="recolher"><span class="icone" aria-hidden="true">‹</span><span class="rotulo">Recolher</span></button>
+    </aside>
+    <button type="button" class="velo" id="velo" aria-label="Fechar menu"></button>
+
+    <div class="miolo">
+      <header class="topo-barra">
+        <button type="button" class="so-estreito" id="abrir-menu" aria-label="Abrir menu">Menu</button>
+        <h1 id="titulo-secao">Ao vivo</h1>
+        <div class="ligacao">
+          <span class="ponto" id="ponto"></span>
+          <div>
+            <strong id="status-conexao">Conectando</strong>
+            <span id="status-dados">Abrindo o canal com o broker</span>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
 
-    <section class="painel sim" id="painel-sim">
-      <div class="sim-barra">
-        <button type="button" id="sim-ligar" aria-pressed="false">Simular</button>
-        <p class="nota" id="sim-ajuda">Gera o resumo e os eventos neste navegador, com a mesma máquina de estados da placa.</p>
-      </div>
-      <div id="sim-corpo" hidden>
-        <div class="sim-acoes">
-          <button type="button" data-manobra="arrancada">Arrancada</button>
-          <button type="button" data-manobra="frenagem">Frenagem</button>
-          <button type="button" data-manobra="curva">Curva</button>
-          <button type="button" data-manobra="impacto">Impacto</button>
-          <button type="button" data-manobra="curto">Pulso curto</button>
-        </div>
-        <p class="nota" id="sim-maquina"></p>
-        <div class="grafico grafico-pista">
-          <canvas id="canvas-pista"></canvas>
-        </div>
-        <p class="nota">A pista usa a proa integrada. As setas do desenho seguem os eixos do corpo. Curva e impacto são ensaio: o firmware ainda não os publica. W A S D ou as setas dirigem.</p>
-      </div>
-    </section>
+      <main class="conteudo">
+        <section class="secao" id="secao-ao-vivo">
+          <div class="grade-vivo">
+            <article class="painel carro-painel">
+              <h2>Carrinho</h2>
+              <svg id="carro" viewBox="0 0 280 360" role="img" aria-label="Carrinho visto de cima, com setas de aceleração">
+                <defs>
+                  <marker id="ponta-ax" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#e6a23c"></path>
+                  </marker>
+                  <marker id="ponta-ay" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#6cb6ff"></path>
+                  </marker>
+                </defs>
+                <g id="carro-grupo" transform="translate(140,176)">
+                  <rect class="roda" x="-52" y="-62" width="16" height="32" rx="4"></rect>
+                  <rect class="roda" x="36" y="-62" width="16" height="32" rx="4"></rect>
+                  <rect class="roda" x="-52" y="30" width="16" height="32" rx="4"></rect>
+                  <rect class="roda" x="36" y="30" width="16" height="32" rx="4"></rect>
+                  <rect class="chassi" x="-30" y="-74" width="60" height="148" rx="18"></rect>
+                  <rect class="nariz" x="-14" y="-84" width="28" height="12" rx="4"></rect>
+                  <line id="seta-ax" class="seta ax" x1="0" y1="0" x2="0" y2="0"></line>
+                  <line id="seta-ay" class="seta ay" x1="0" y1="0" x2="0" y2="0"></line>
+                </g>
+              </svg>
+              <p class="nota" id="nota-carro"></p>
+            </article>
 
-    <section class="topo">
-      <article class="painel carro-painel">
-        <h2>Carrinho</h2>
-        <svg id="carro" viewBox="0 0 280 360" role="img" aria-label="Carrinho visto de cima, com setas de aceleração">
-          <defs>
-            <marker id="ponta-ax" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="#e6a23c"></path>
-            </marker>
-            <marker id="ponta-ay" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="#6cb6ff"></path>
-            </marker>
-          </defs>
-          <g id="carro-grupo" transform="translate(140,176)">
-            <rect class="roda" x="-52" y="-62" width="16" height="32" rx="4"></rect>
-            <rect class="roda" x="36" y="-62" width="16" height="32" rx="4"></rect>
-            <rect class="roda" x="-52" y="30" width="16" height="32" rx="4"></rect>
-            <rect class="roda" x="36" y="30" width="16" height="32" rx="4"></rect>
-            <rect class="chassi" x="-30" y="-74" width="60" height="148" rx="18"></rect>
-            <rect class="nariz" x="-14" y="-84" width="28" height="12" rx="4"></rect>
-            <line id="seta-ax" class="seta ax" x1="0" y1="0" x2="0" y2="0"></line>
-            <line id="seta-ay" class="seta ay" x1="0" y1="0" x2="0" y2="0"></line>
-          </g>
-        </svg>
-        <p class="nota" id="nota-carro"></p>
-      </article>
+            <article class="painel">
+              <h2>Diagrama g-g</h2>
+              <div class="grafico grafico-gg">
+                <canvas id="canvas-gg"></canvas>
+                <p class="vazio" id="vazio-gg">Aguardando amostras.</p>
+              </div>
+              <p class="nota">Cima é a frente. A esquerda da tela é o lado esquerdo do carrinho.</p>
+            </article>
 
-      <article class="painel">
-        <h2>Diagrama g-g</h2>
-        <div class="grafico grafico-gg">
-          <canvas id="canvas-gg"></canvas>
-          <p class="vazio" id="vazio-gg">Aguardando amostras.</p>
-        </div>
-        <p class="nota">Cima é a frente. A esquerda da tela é o lado esquerdo do carrinho.</p>
-      </article>
+            <div class="cartas">
+              <article class="painel carta" id="carta-arrancada">
+                <h2>Arrancada</h2>
+                <div class="corpo"></div>
+              </article>
+              <article class="painel carta" id="carta-frenagem">
+                <h2>Frenagem</h2>
+                <div class="corpo"></div>
+              </article>
+              <p class="nota" id="nota-eventos"></p>
+            </div>
+          </div>
 
-      <div class="cartas">
-        <article class="painel carta" id="carta-arrancada">
-          <h2>Arrancada</h2>
-          <div class="corpo"></div>
-        </article>
-        <article class="painel carta" id="carta-frenagem">
-          <h2>Frenagem</h2>
-          <div class="corpo"></div>
-        </article>
-        <p class="nota" id="nota-eventos"></p>
-      </div>
-    </section>
+          <section class="leituras" aria-label="Último resumo">
+            <article class="painel leitura"><h2>ax</h2><p id="val-ax">—</p><span>g</span></article>
+            <article class="painel leitura"><h2>ay</h2><p id="val-ay">—</p><span>g</span></article>
+            <article class="painel leitura"><h2>az</h2><p id="val-az">—</p><span>g</span></article>
+            <article class="painel leitura"><h2>gx</h2><p id="val-gx">—</p><span>°/s</span></article>
+            <article class="painel leitura"><h2>gy</h2><p id="val-gy">—</p><span>°/s</span></article>
+            <article class="painel leitura"><h2>gz</h2><p id="val-gz">—</p><span>°/s</span></article>
+            <article class="painel leitura"><h2>BMP180</h2><p id="val-temp">—</p><span>°C</span></article>
+            <article class="painel leitura"><h2>Pressão</h2><p id="val-press">—</p><span id="val-press-pa">hPa</span></article>
+            <article class="painel leitura"><h2>MPU6050</h2><p id="val-mpu">—</p><span>°C</span></article>
+          </section>
 
-    <section class="leituras" aria-label="Último resumo">
-      <article class="painel leitura"><h2>ax</h2><p id="val-ax">—</p><span>g</span></article>
-      <article class="painel leitura"><h2>ay</h2><p id="val-ay">—</p><span>g</span></article>
-      <article class="painel leitura"><h2>az</h2><p id="val-az">—</p><span>g</span></article>
-      <article class="painel leitura"><h2>gx</h2><p id="val-gx">—</p><span>°/s</span></article>
-      <article class="painel leitura"><h2>gy</h2><p id="val-gy">—</p><span>°/s</span></article>
-      <article class="painel leitura"><h2>gz</h2><p id="val-gz">—</p><span>°/s</span></article>
-      <article class="painel leitura"><h2>BMP180</h2><p id="val-temp">—</p><span>°C</span></article>
-      <article class="painel leitura"><h2>Pressão</h2><p id="val-press">—</p><span id="val-press-pa">hPa</span></article>
-      <article class="painel leitura"><h2>MPU6050</h2><p id="val-mpu">—</p><span>°C</span></article>
-    </section>
+          <section class="graficos">
+            <article class="painel">
+              <h2>Aceleração</h2>
+              <ul class="legenda">
+                <li><i class="amostra ax"></i> ax</li>
+                <li><i class="amostra ay"></i> ay</li>
+                <li><i class="amostra az"></i> az</li>
+                <li><i class="amostra limiar-arrancada"></i> limiar de arrancada</li>
+                <li><i class="amostra limiar-frenagem"></i> limiar de frenagem</li>
+              </ul>
+              <div class="grafico">
+                <canvas id="canvas-acel"></canvas>
+                <p class="vazio" id="vazio-acel">Aguardando o resumo.</p>
+              </div>
+              <p class="nota">Escala inicial de ±1 g. As linhas tracejadas seguem o catálogo de arrancada e frenagem.</p>
+            </article>
+            <article class="painel">
+              <h2>Giroscópio</h2>
+              <ul class="legenda">
+                <li><i class="amostra ax"></i> gx</li>
+                <li><i class="amostra ay"></i> gy</li>
+                <li><i class="amostra az"></i> gz</li>
+              </ul>
+              <div class="grafico">
+                <canvas id="canvas-giro"></canvas>
+                <p class="vazio" id="vazio-giro">Aguardando o resumo.</p>
+              </div>
+              <p class="nota">Escala inicial de ±50 °/s. Amplia se a leitura passar disso.</p>
+            </article>
+          </section>
+        </section>
 
-    <section class="graficos">
-      <article class="painel">
-        <h2>Aceleração</h2>
-        <ul class="legenda">
-          <li><i class="amostra ax"></i> ax</li>
-          <li><i class="amostra ay"></i> ay</li>
-          <li><i class="amostra az"></i> az</li>
-          <li><i class="amostra limiar-arrancada"></i> limiar de arrancada</li>
-          <li><i class="amostra limiar-frenagem"></i> limiar de frenagem</li>
-        </ul>
-        <div class="grafico">
-          <canvas id="canvas-acel"></canvas>
-          <p class="vazio" id="vazio-acel">Aguardando o resumo.</p>
-        </div>
-        <p class="nota">Escala inicial de ±1 g. As linhas tracejadas são os limiares gravados no firmware.</p>
-      </article>
-      <article class="painel">
-        <h2>Giroscópio</h2>
-        <ul class="legenda">
-          <li><i class="amostra ax"></i> gx</li>
-          <li><i class="amostra ay"></i> gy</li>
-          <li><i class="amostra az"></i> gz</li>
-        </ul>
-        <div class="grafico">
-          <canvas id="canvas-giro"></canvas>
-          <p class="vazio" id="vazio-giro">Aguardando o resumo.</p>
-        </div>
-        <p class="nota">Escala inicial de ±50 °/s. Amplia se a leitura passar disso.</p>
-      </article>
-    </section>
+        <section class="secao" id="secao-eventos" hidden>
+          <article class="painel">
+            <div class="sim-barra">
+              <h2>Catálogo</h2>
+              <button type="button" id="novo-evento">Novo evento</button>
+            </div>
+            <ul class="catalogo" id="catalogo"></ul>
+            <p class="nota">Arrancada e frenagem são os detectores compilados na placa. O que for salvo aqui vale na simulação.</p>
+          </article>
+          <article class="painel">
+            <h2 id="ficha-titulo">Novo evento</h2>
+            <form class="ficha" id="ficha-evento">
+              <label class="largo">Nome <input name="nome" required maxlength="32" autocomplete="off"></label>
+              <label>Eixo
+                <select name="eixo">
+                  <option value="ax">ax</option>
+                  <option value="ay">ay</option>
+                  <option value="az">az</option>
+                  <option value="gz">gz</option>
+                </select>
+              </label>
+              <label>Limiar <input name="limiar" type="number" step="0.01" required></label>
+              <label>Duração mínima (ms) <input name="minMs" type="number" min="20" step="20" value="100" required></label>
+              <label>Resfriamento (ms) <input name="resfriamentoMs" type="number" min="0" step="20" value="500" required></label>
+              <label class="check"><input name="ativo" type="checkbox" checked> Ativo na simulação</label>
+              <p class="nota largo" id="ficha-nota"></p>
+              <div class="largo sim-acoes">
+                <button type="submit">Salvar</button>
+                <button type="button" id="ficha-cancelar" hidden>Cancelar</button>
+              </div>
+            </form>
+          </article>
+          <article class="painel">
+            <h2>Disparos</h2>
+            <ol class="lista-eventos" id="lista-eventos"></ol>
+          </article>
+        </section>
 
-    <section class="painel">
-      <h2>Eventos recebidos</h2>
-      <ol class="lista-eventos" id="lista-eventos"></ol>
-    </section>
+        <section class="secao" id="secao-simulacao" hidden>
+          <section class="painel sim" id="painel-sim">
+            <div class="sim-barra">
+              <button type="button" id="sim-ligar" aria-pressed="false">Simular</button>
+              <p class="nota" id="sim-ajuda">Gera o resumo e os eventos neste navegador, com a mesma máquina de estados da placa.</p>
+            </div>
+            <div id="sim-corpo">
+              <div class="sim-acoes">
+                <button type="button" data-manobra="arrancada">Arrancada</button>
+                <button type="button" data-manobra="frenagem">Frenagem</button>
+                <button type="button" data-manobra="curva">Curva</button>
+                <button type="button" data-manobra="impacto">Impacto</button>
+                <button type="button" data-manobra="curto">Pulso curto</button>
+              </div>
+              <p class="nota" id="sim-maquina"></p>
+              <div class="grafico grafico-pista">
+                <canvas id="canvas-pista"></canvas>
+              </div>
+              <p class="nota">A pista usa a proa integrada. As setas do desenho seguem os eixos do corpo. W A S D ou as setas dirigem.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="secao" id="secao-dispositivo" hidden>
+          <article class="painel">
+            <h2>Ligação</h2>
+            <p id="dispositivo-topicos"></p>
+            <p class="nota">O painel só assina o resumo e os eventos. Não publica no broker.</p>
+          </article>
+          <article class="painel">
+            <h2>Firmware</h2>
+            <p class="nota">A atualização da placa entra nesta seção quando o FUOTA estiver neste ESP32. Até lá, os limiares compilados são +0,30 g e −0,40 g.</p>
+          </article>
+        </section>
+      </main>
+    </div>
   </div>
   <script src="vendor/mqtt.min.js"></script>
   <script src="app.js"></script>
